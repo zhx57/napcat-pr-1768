@@ -1,0 +1,132 @@
+# =============================================================================
+# NapCat PR #1768 Docker 镜像构建 & 推送到 ghcr.io
+# =============================================================================
+# 使用方法：
+#   1. 将本仓库（含 NapCat.Shell.zip、Dockerfile 等）推送到你的 GitHub 仓库
+#   2. 进入仓库 Actions 页面 -> 选择 "Build & Push to GHCR" -> Run workflow
+#   3. 构建完成后镜像地址: ghcr.io/<你的用户名>/<仓库名>:pr-1768-e310a57
+#
+# 安全说明：
+#   - 使用 GitHub Actions 自带的 GITHUB_TOKEN，无需额外配置密钥
+#   - 确保仓库 Settings -> Actions -> General -> Workflow permissions
+#     设置为 "Read and write permissions"
+# =============================================================================
+name: Build & Push to GHCR
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "镜像标签 (默认 pr-1768-e310a57)"
+        required: false
+        default: "pr-1768-e310a57"
+      platforms:
+        description: "构建平台 (默认 amd64+arm64)"
+        required: false
+        default: "linux/amd64,linux/arm64"
+      push_only:
+        description: "仅推送 (跳过多架构构建，只推当前平台)"
+        required: false
+        default: "false"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          # ghcr.io 镜像名必须小写
+          IMAGE_LOWER=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          FULL_IMAGE="${IMAGE_LOWER}:${IMAGE_TAG}"
+          echo "full_image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
+          echo "image_lower=${IMAGE_LOWER}" >> $GITHUB_OUTPUT
+          echo "============================================"
+          echo "  目标镜像: ${FULL_IMAGE}"
+          echo "  平台: ${{ inputs.platforms }}"
+          echo "============================================"
+
+      - name: Build and push (multi-arch)
+        if: inputs.push_only != 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ inputs.platforms }}
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.full_image }}
+            ${{ steps.meta.outputs.image_lower }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=NapCat PR #1768 Test Image
+            org.opencontainers.image.description=NapCat Docker test image for PR #1768 (anti-detect/anti-kickoff)
+            org.opencontainers.image.source=https://github.com/NapNeko/NapCatQQ/pull/1768
+            org.opencontainers.image.revision=e310a57
+            org.opencontainers.image.version=${{ inputs.image_tag }}
+
+      - name: Build and push (single arch)
+        if: inputs.push_only == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.full_image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "## ✅ 构建完成" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "镜像地址: \`${{ steps.meta.outputs.full_image }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 拉取并运行" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ steps.meta.outputs.full_image }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --name napcat-pr-test \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -e NAPCAT_UID=\$(id -u) \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -e NAPCAT_GID=\$(id -g) \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -e WEBUI_TOKEN=napcat \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -p 6099:6099 \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -p 3000:3000 \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -p 3001:3001 \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -v ./napcat/config:/app/napcat/config \\" >> $GITHUB_STEP_SUMMARY
+          echo "  -v ./napcat/QQ:/app/.config/QQ \\" >> $GITHUB_STEP_SUMMARY
+          echo "  ${{ steps.meta.outputs.full_image }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "WebUI: http://localhost:6099/webui (Token: napcat)" >> $GITHUB_STEP_SUMMARY

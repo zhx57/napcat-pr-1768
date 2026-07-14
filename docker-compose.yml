@@ -1,0 +1,19 @@
+version: "3"
+services:
+  napcat:
+    image: mlikiowa/napcat-docker:pr-1768-e310a57
+    build: .
+    container_name: napcat-pr-test
+    environment:
+      - NAPCAT_UID=${NAPCAT_UID:-0}
+      - NAPCAT_GID=${NAPCAT_GID:-0}
+      - WEBUI_TOKEN=${WEBUI_TOKEN:-napcat}
+      # - ACCOUNT=你的QQ号  # 取消注释以自动登录
+    ports:
+      - "6099:6099"
+      - "3000:3000"
+      - "3001:3001"
+    volumes:
+      - ./napcat/config:/app/napcat/config
+      - ./napcat/QQ:/app/.config/QQ
+    restart: unless-stopped
